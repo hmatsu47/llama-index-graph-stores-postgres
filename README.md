@@ -33,7 +33,7 @@ documents = SimpleDirectoryReader(
 ).load_data()
 
 graph_store = PostgresPropertyGraphStore(
-    db_connection_string="postgresql+psycopg://user:password@host:5432/dbname",
+    db_connection_string="postgresql://user:password@host:5432/dbname",
 )
 
 index = PropertyGraphIndex.from_documents(

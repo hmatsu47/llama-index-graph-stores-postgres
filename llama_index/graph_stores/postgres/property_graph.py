@@ -81,7 +81,7 @@ class PostgresPropertyGraphStore(PropertyGraphStore):
     def __init__(
         self,
         db_connection_string: str,
-        embedding_dim: int = 1536,
+        embedding_dim: int = 1024,
         node_table_name: str = "pg_nodes",
         relation_table_name: str = "pg_relations",
         drop_existing_table: bool = False,
