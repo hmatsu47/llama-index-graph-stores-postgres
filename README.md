@@ -10,7 +10,8 @@ In this project, we integrate PostgreSQL as the graph store to store the LlamaIn
 ## Installation
 
 ```shell
-pip install llama-index llama-index-graph-stores-postgres
+pip install llama-index
+pip install git+https://github.com/hmatsu47/llama-index-graph-stores-postgres.git
 ```
 
 ## Usage
