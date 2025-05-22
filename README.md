@@ -25,7 +25,7 @@ Simple example to use `PostgresPropertyGraphStore`:
 from llama_index.core import PropertyGraphIndex, Settings, SimpleDirectoryReader
 from llama_index.embeddings.bedrock import BedrockEmbedding, Models
 from llama_index.llms.bedrock_converse import BedrockConverse
-from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
+from llama_index.core.indices.property_graph import ImplicitPathExtractor, SimpleLLMPathExtractor
 from llama_index.graph_stores.postgres import PostgresPropertyGraphStore
 
 documents = SimpleDirectoryReader(
@@ -46,9 +46,8 @@ index = PropertyGraphIndex.from_documents(
     documents,
     embed_model=embed_model,
     kg_extractors=[
-        SchemaLLMPathExtractor(
-            llm=llm
-        )
+        SimpleLLMPathExtractor(llm=llm),
+        ImplicitPathExtractor(),
     ],
     property_graph_store=graph_store,
     show_progress=True,
