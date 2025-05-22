@@ -22,9 +22,9 @@ NOTE: `PostgresPropertyGraphStore` requires the pgvector extension to be install
 Simple example to use `PostgresPropertyGraphStore`:
 
 ```python
-from llama_index.core import PropertyGraphIndex, SimpleDirectoryReader
-from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.openai import OpenAI
+from llama_index.core import PropertyGraphIndex, Settings, SimpleDirectoryReader
+from llama_index.embeddings.bedrock import BedrockEmbedding, Models
+from llama_index.llms.bedrock_converse import BedrockConverse
 from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 from llama_index.graph_stores.postgres import PostgresPropertyGraphStore
 
@@ -36,12 +36,18 @@ graph_store = PostgresPropertyGraphStore(
     db_connection_string="postgresql://user:password@host:5432/dbname",
 )
 
+llm=BedrockConverse(model="us.anthropic.claude-3-7-sonnet-20250219-v1:0", region_name="us-west-2", temperature=0.0)
+embed_model=BedrockEmbedding(model_name=Models.TITAN_EMBEDDING_V2_0, region_name="us-west-2")
+
+Settings.llm = llm
+Settings.embed_model = embed_model
+
 index = PropertyGraphIndex.from_documents(
     documents,
-    embed_model=OpenAIEmbedding(model_name="text-embedding-3-small"),
+    embed_model=embed_model,
     kg_extractors=[
         SchemaLLMPathExtractor(
-            llm=OpenAI(model="gpt-3.5-turbo", temperature=0.0)
+            llm=llm
         )
     ],
     property_graph_store=graph_store,
