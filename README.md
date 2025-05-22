@@ -76,7 +76,7 @@ documents = SimpleDirectoryReader(
 ).load_data()
 
 graph_store = PostgresGraphStore(
-    db_connection_string="postgresql+psycopg://user:password@host:5432/dbname"
+    db_connection_string="postgresql://user:password@host:5432/dbname"
 )
 storage_context = StorageContext.from_defaults(graph_store=graph_store)
 index = KnowledgeGraphIndex.from_documents(
