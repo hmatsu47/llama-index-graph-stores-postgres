@@ -21,6 +21,8 @@ from sqlalchemy.orm import (
     joinedload,
 )
 
+import networkx as nx
+from pyvis.network import Network
 from pgvector.sqlalchemy import Vector
 from llama_index.core.graph_stores.types import (
     PropertyGraphStore,
@@ -447,3 +449,114 @@ class PostgresPropertyGraphStore(PropertyGraphStore):
                 )
                 scores.append(score)
             return nodes, scores
+            
+    def save_networkx_graph(self, name: str = "kg.html") -> None:
+        """
+        Save the graph as a network visualization using pyvis.
+        
+        Args:
+            name: The filename to save the visualization to.
+        """
+        # Create a NetworkX graph
+        G = nx.DiGraph()
+        
+        # Get all nodes and relations from the database
+        with Session(self._engine) as session:
+            # Get all nodes
+            nodes = session.query(self._node_model).all()
+            
+            # Add nodes to the graph
+            for node in nodes:
+                node_id = node.id
+                node_label = node.label
+                node_name = node.name if node.name else node.id
+                
+                # Prepare node properties for display
+                node_props = {}
+                if node.properties:
+                    node_props = remove_empty_values(node.properties)
+                
+                # Create a title with node properties for hover tooltip
+                title = f"ID: {node_id}<br>Label: {node_label}"
+                for k, v in node_props.items():
+                    if isinstance(v, (dict, list)):
+                        v = json.dumps(v)
+                    title += f"<br>{k}: {v}"
+                
+                # Add node to the graph with its properties
+                G.add_node(
+                    node_id, 
+                    label=node_name, 
+                    title=title, 
+                    group=node_label
+                )
+            
+            # Get all relations
+            relations = session.query(self._relation_model).all()
+            
+            # Add edges to the graph
+            for rel in relations:
+                source_id = rel.source_id
+                target_id = rel.target_id
+                rel_label = rel.label
+                
+                # Prepare relation properties for display
+                rel_props = {}
+                if rel.properties:
+                    rel_props = remove_empty_values(rel.properties)
+                
+                # Create a title with relation properties for hover tooltip
+                title = f"Relation: {rel_label}"
+                for k, v in rel_props.items():
+                    if isinstance(v, (dict, list)):
+                        v = json.dumps(v)
+                    title += f"<br>{k}: {v}"
+                
+                # Add edge to the graph with its properties
+                G.add_edge(
+                    source_id, 
+                    target_id, 
+                    label=rel_label, 
+                    title=title
+                )
+        
+        # Create a pyvis network from the NetworkX graph
+        net = Network(notebook=False, directed=True)
+        net.from_nx(G)
+        
+        # Configure the visualization options
+        net.set_options("""
+        var options = {
+            "nodes": {
+                "font": {
+                    "size": 12
+                },
+                "shape": "dot",
+                "size": 25
+            },
+            "edges": {
+                "font": {
+                    "size": 10
+                },
+                "smooth": {
+                    "type": "dynamic"
+                },
+                "arrows": {
+                    "to": {
+                        "enabled": true
+                    }
+                }
+            },
+            "physics": {
+                "barnesHut": {
+                    "gravitationalConstant": -80000,
+                    "springLength": 250,
+                    "springConstant": 0.001
+                },
+                "minVelocity": 0.75
+            }
+        }
+        """)
+        
+        # Save the visualization to an HTML file
+        net.save_graph(name)
