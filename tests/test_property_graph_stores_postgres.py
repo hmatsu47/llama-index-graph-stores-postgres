@@ -1,5 +1,6 @@
 import os
-from unittest import TestCase, SkipTest
+import tempfile
+from unittest import TestCase, SkipTest, mock
 
 from llama_index.core.graph_stores.types import (
     EntityNode,
@@ -67,3 +68,43 @@ class TestPostgresPropertyGraphStore(TestCase):
         assert len(g.get(ids=[self.e1.id])) == 1
         assert len(g.get(ids=[self.e1.id, self.e2.id])) == 2
         assert len(g.get(properties={"p1": "v1"})) == 1
+        
+    @mock.patch("llama_index.graph_stores.postgres.property_graph.NETWORKX_AVAILABLE", True)
+    @mock.patch("llama_index.graph_stores.postgres.property_graph.nx")
+    @mock.patch("llama_index.graph_stores.postgres.property_graph.plt")
+    def test_save_networkx_graph(self, mock_plt, mock_nx):
+        # Setup mock for NetworkX
+        mock_graph = mock.MagicMock()
+        mock_nx.DiGraph.return_value = mock_graph
+        mock_nx.spring_layout.return_value = {}
+        
+        # Create a temporary file for the output
+        with tempfile.NamedTemporaryFile(suffix='.png') as temp_file:
+            output_name = temp_file.name[:-4]  # Remove .png extension
+            
+            # Create graph store and add test data
+            g = get_store()
+            g.upsert_nodes([self.e1, self.e2])
+            g.upsert_relations([self.r])
+            
+            # Call the method
+            g.save_networkx_graph(output_name)
+            
+            # Verify the graph was created with the correct nodes and edges
+            mock_nx.DiGraph.assert_called_once()
+            
+            # Verify that nodes were added to the graph
+            self.assertEqual(mock_graph.add_node.call_count, 2)
+            
+            # Verify that edges were added to the graph
+            mock_graph.add_edge.assert_called_once()
+            
+            # Verify that the plot was saved
+            mock_plt.savefig.assert_called_once()
+            
+    def test_save_networkx_graph_import_error(self):
+        # Test the case where NetworkX is not available
+        with mock.patch("llama_index.graph_stores.postgres.property_graph.NETWORKX_AVAILABLE", False):
+            g = get_store()
+            with self.assertRaises(ImportError):
+                g.save_networkx_graph("test_graph")

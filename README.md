@@ -66,6 +66,23 @@ response = query_engine.query("What happened at Interleaf and Viaweb?")
 print(response)
 ```
 
+#### Visualizing the Property Graph
+
+You can visualize the property graph by saving it as a network graph image:
+
+```python
+# Save the graph visualization to a file named "my_graph.png"
+graph_store.save_networkx_graph("my_graph")
+```
+
+This requires the `networkx` and `matplotlib` libraries to be installed:
+
+```shell
+pip install networkx matplotlib
+```
+
+The visualization will include all nodes and edges in the graph, with node labels and edge labels displayed.
+
 ### Knowledge Graph Store
 
 Simple example to use `PostgresGraphStore`:

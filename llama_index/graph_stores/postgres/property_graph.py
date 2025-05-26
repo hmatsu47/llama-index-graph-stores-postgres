@@ -1,6 +1,7 @@
 """PostgreSQL property graph store index."""
 import json
 from typing import Tuple, Optional, List, Dict, Any
+import os
 from sqlalchemy import (
     Text,
     create_engine,
@@ -20,6 +21,13 @@ from sqlalchemy.orm import (
     relationship,
     joinedload,
 )
+
+try:
+    import networkx as nx
+    import matplotlib.pyplot as plt
+    NETWORKX_AVAILABLE = True
+except ImportError:
+    NETWORKX_AVAILABLE = False
 
 from pgvector.sqlalchemy import Vector
 from llama_index.core.graph_stores.types import (
@@ -447,3 +455,90 @@ class PostgresPropertyGraphStore(PropertyGraphStore):
                 )
                 scores.append(score)
             return nodes, scores
+            
+    def save_networkx_graph(self, name: str) -> None:
+        """Save a NetworkX graph visualization of all nodes and relations.
+        
+        Args:
+            name: The filename to save the graph visualization to (without extension).
+                 The file will be saved as {name}.png.
+        
+        Raises:
+            ImportError: If NetworkX or Matplotlib is not installed.
+        """
+        if not NETWORKX_AVAILABLE:
+            raise ImportError(
+                "NetworkX and Matplotlib are required to save graph visualizations. "
+                "Please install them with `pip install networkx matplotlib`."
+            )
+            
+        # Create a new NetworkX graph
+        G = nx.DiGraph()
+        
+        # Get all nodes from the database
+        with Session(self._engine) as session:
+            # Fetch all nodes
+            nodes = session.query(self._node_model).all()
+            
+            # Add nodes to the graph
+            for node in nodes:
+                node_id = node.id
+                node_label = node.label
+                node_name = node.name if node.name else node.id
+                
+                # Add node with attributes
+                G.add_node(
+                    node_id, 
+                    label=node_label,
+                    name=node_name,
+                    properties=remove_empty_values(node.properties)
+                )
+            
+            # Fetch all relations
+            relations = session.query(self._relation_model).all()
+            
+            # Add edges to the graph
+            for relation in relations:
+                source_id = relation.source_id
+                target_id = relation.target_id
+                rel_label = relation.label
+                
+                # Add edge with attributes
+                G.add_edge(
+                    source_id, 
+                    target_id, 
+                    label=rel_label,
+                    properties=remove_empty_values(relation.properties)
+                )
+        
+        # Create the visualization
+        plt.figure(figsize=(12, 8))
+        
+        # Create a layout for the graph
+        pos = nx.spring_layout(G)
+        
+        # Draw nodes
+        nx.draw_networkx_nodes(G, pos, node_size=700, alpha=0.8)
+        
+        # Draw edges
+        nx.draw_networkx_edges(G, pos, width=1.0, alpha=0.5, arrows=True)
+        
+        # Draw node labels (using node names)
+        node_labels = {node_id: G.nodes[node_id].get('name', node_id) for node_id in G.nodes}
+        nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=10)
+        
+        # Draw edge labels (using relation labels)
+        edge_labels = {(source, target): G.edges[source, target]['label'] 
+                      for source, target in G.edges}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+        
+        # Set title and adjust layout
+        plt.title(f"Property Graph Visualization")
+        plt.axis('off')
+        
+        # Save the figure
+        output_path = f"{name}.png"
+        plt.savefig(output_path, format="PNG", dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Graph visualization saved to {os.path.abspath(output_path)}")
