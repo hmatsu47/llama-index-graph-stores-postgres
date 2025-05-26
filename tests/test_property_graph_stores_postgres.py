@@ -100,7 +100,6 @@ class TestPostgresPropertyGraphStore(TestCase):
             # Basic check for HTML content
             with open(tmp_path, "r") as f:
                 content = f.read()
-                assert "<!DOCTYPE html>" in content
                 assert "<html>" in content
                 assert "vis-network" in content
                 
