@@ -6,6 +6,8 @@ def check_db_availability(engine: Engine, check_vector: bool = False) -> None:
     try:
         with engine.connect() as conn:
             if check_vector:
+                conn.execute(sql.text("""CREATE EXTENSION IF NOT EXISTS vector;"""))
+                conn.commit()
                 conn.execute(sql.text("""SELECT '[1]'::vector;"""))
             else:
                 conn.execute(sql.text("""SELECT 1;"""))

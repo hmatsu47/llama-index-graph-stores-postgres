@@ -523,40 +523,4 @@ class PostgresPropertyGraphStore(PropertyGraphStore):
         # Create a pyvis network from the NetworkX graph
         net = Network(notebook=False, directed=True)
         net.from_nx(G)
-        
-        # Configure the visualization options
-        net.set_options("""
-        var options = {
-            "nodes": {
-                "font": {
-                    "size": 12
-                },
-                "shape": "dot",
-                "size": 25
-            },
-            "edges": {
-                "font": {
-                    "size": 10
-                },
-                "smooth": {
-                    "type": "dynamic"
-                },
-                "arrows": {
-                    "to": {
-                        "enabled": true
-                    }
-                }
-            },
-            "physics": {
-                "barnesHut": {
-                    "gravitationalConstant": -80000,
-                    "springLength": 250,
-                    "springConstant": 0.001
-                },
-                "minVelocity": 0.75
-            }
-        }
-        """)
-        
-        # Save the visualization to an HTML file
-        net.save_graph(name)
+        net.write_html(name)
