@@ -1,304 +1,325 @@
-# PostgreSQL Property Graph Index 詳細ガイド
+# LlamaIndex Graph Stores Integration: PostgreSQL - プロパティグラフガイド
 
-このドキュメントは、LlamaIndexのProperty Graph Index機能をPostgreSQLと組み合わせて使用する方法について詳しく説明します。
+## 概要
 
-## Property Graph Index とは
+このドキュメントでは、LlamaIndexのプロパティグラフインデックスをPostgreSQLと統合して使用する方法について説明します。PostgreSQLは35年以上の開発実績を持つ強力なオープンソースのオブジェクトリレーショナルデータベースシステムです。pgvector拡張機能により、PostgreSQLはベクトル操作をサポートし、AIアプリケーションやベクトル類似性検索に適しています。
 
-Property Graph Index（プロパティグラフインデックス）は、LlamaIndexの最新のグラフインデックス機能で、従来のKnowledge Graph Indexよりも表現力豊かで柔軟なグラフ構造を提供します。
+このプロジェクトでは、PostgreSQLをグラフストアとして統合し、LlamaIndexのグラフデータを保存し、PostgreSQLのSQLインターフェースを使用してグラフデータをクエリできるようにしています。
 
-### 従来のKnowledge Graph Indexとの違い
+## 主な機能
 
-| 特徴 | Knowledge Graph Index | Property Graph Index |
-|------|----------------------|---------------------|
-| データ構造 | トリプレット（主語-述語-目的語） | ノードとエッジにプロパティを持つグラフ |
-| 表現力 | 基本的なリレーションシップ | 複雑な属性とメタデータ |
-| ベクトル検索 | 限定的 | 完全サポート |
-| クエリの柔軟性 | 基本的 | 高度 |
+- **プロパティグラフストア**: `PostgresPropertyGraphStore`
+- **ナレッジグラフストア**: `PostgresGraphStore`
 
-参考: [LlamaIndex Property Graph Index Guide](https://docs.llamaindex.ai/en/stable/module_guides/indexing/lpg_index_guide/)
+## インストール
 
-## PostgreSQL Property Graph Store の特徴
+```shell
+pip install llama-index
+pip install git+https://github.com/hmatsu47/llama-index-graph-stores-postgres.git
+```
 
-### 1. ベクトル埋め込みサポート
+## 前提条件
 
-pgvector拡張機能を活用して、ノードとエッジの両方にベクトル埋め込みを保存できます。
+### PostgreSQL設定
+
+プロパティグラフストアを使用するには、PostgreSQLデータベースにpgvector拡張機能がインストールされている必要があります。
+
+```sql
+-- pgvector拡張機能を有効化
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+## プロパティグラフストア（PostgresPropertyGraphStore）
+
+**重要**: このリポジトリのコードでは embed_dim は 1024 固定です。
+
+### 基本概念
+
+プロパティグラフは、ノードとエッジ（関係）の両方にプロパティ（属性）を持つことができるグラフデータ構造です。LlamaIndexのプロパティグラフインデックスは、以下の特徴を持ちます：
+
+- **エンティティノード**: 抽出されたエンティティを表現
+- **チャンクノード**: 元のテキストチャンクを表現
+- **関係**: エンティティ間の関係を表現
+- **ベクトル検索**: エンベディングを使用した類似性検索
+
+### 重要な制限事項
+
+**注意**: このリポジトリのコードでは embed_dim は 1024 固定です。
+
+### 基本的な使用例
 
 ```python
+from llama_index.core import PropertyGraphIndex, Settings, SimpleDirectoryReader
+from llama_index.embeddings.bedrock import BedrockEmbedding, Models
+from llama_index.llms.bedrock_converse import BedrockConverse
+from llama_index.core.indices.property_graph import (
+    ImplicitPathExtractor,
+    SimpleLLMPathExtractor,
+)
 from llama_index.graph_stores.postgres import PostgresPropertyGraphStore
 
-# ベクトル次元を指定してストアを初期化
+# ドキュメントの読み込み
+documents = SimpleDirectoryReader("./data/").load_data()
+
+# PostgreSQLプロパティグラフストアの初期化
 graph_store = PostgresPropertyGraphStore(
     db_connection_string="postgresql://user:password@host:5432/dbname",
-    embed_dim=1536,  # 埋め込みベクトルの次元数
+    embedding_dim=1024,  # 固定値（変更不可）
+    node_table_name="pg_nodes",  # ノードテーブル名（オプション）
+    relation_table_name="pg_relations",  # 関係テーブル名（オプション）
+    drop_existing_table=False,  # 既存テーブルを削除するか（オプション）
+    echo_queries=False,  # SQLクエリをログ出力するか（オプション）
 )
+
+# LLMとエンベディングモデルの設定
+llm = BedrockConverse(
+    model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+    region_name="us-west-2",
+    temperature=0.0,
+)
+embed_model = BedrockEmbedding(
+    model_name=Models.TITAN_EMBEDDING_V2_0, 
+    region_name="us-west-2"
+)
+
+Settings.llm = llm
+Settings.embed_model = embed_model
+
+# プロパティグラフインデックスの作成
+index = PropertyGraphIndex.from_documents(
+    documents,
+    embed_model=embed_model,
+    kg_extractors=[
+        SimpleLLMPathExtractor(llm=llm),  # LLMベースの関係抽出
+        ImplicitPathExtractor(),  # 暗黙的な関係抽出
+    ],
+    property_graph_store=graph_store,
+    show_progress=True,
+)
+
+# クエリエンジンの作成と使用
+query_engine = index.as_query_engine(include_text=True)
+response = query_engine.query("InterleafとViawebで何が起こったのですか？")
+print(response)
 ```
-
-### 2. 柔軟なスキーマ設計
-
-ノードとエッジに任意のプロパティを追加できます。
-
-```python
-# カスタムプロパティを持つノードの例
-node_properties = {
-    "name": "Apple Inc.",
-    "type": "Company",
-    "founded": "1976",
-    "industry": "Technology",
-    "market_cap": "3000000000000"  # 3兆ドル
-}
-```
-
-## 実装の詳細
 
 ### データベーススキーマ
 
-PostgreSQL Property Graph Storeは以下のテーブル構造を使用します：
+PostgresPropertyGraphStoreは以下のテーブル構造を使用します：
+
+#### ノードテーブル（pg_nodes）
 
 ```sql
--- ノードテーブル
-CREATE TABLE property_graph_nodes (
-    id VARCHAR PRIMARY KEY,
-    name VARCHAR,
-    type VARCHAR,
-    properties JSONB,
-    embedding VECTOR(1536)  -- pgvector型
+CREATE TABLE pg_nodes (
+    id VARCHAR(512) PRIMARY KEY,
+    text TEXT,
+    name VARCHAR(512),
+    label VARCHAR(512) NOT NULL DEFAULT 'node',
+    properties JSONB DEFAULT '{}',
+    embedding VECTOR(1024),  -- 固定次元
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
--- エッジテーブル  
-CREATE TABLE property_graph_edges (
-    id VARCHAR PRIMARY KEY,
-    source_id VARCHAR REFERENCES property_graph_nodes(id),
-    target_id VARCHAR REFERENCES property_graph_nodes(id),
-    type VARCHAR,
-    properties JSONB,
-    embedding VECTOR(1536)
-);
-
--- インデックス
-CREATE INDEX ON property_graph_nodes USING ivfflat (embedding vector_cosine_ops);
-CREATE INDEX ON property_graph_edges USING ivfflat (embedding vector_cosine_ops);
 ```
 
-### 抽出器（Extractors）の種類
+#### 関係テーブル（pg_relations）
 
-#### 1. SimpleLLMPathExtractor
+```sql
+CREATE TABLE pg_relations (
+    id SERIAL PRIMARY KEY,
+    label VARCHAR(512) NOT NULL,
+    source_id VARCHAR(512) REFERENCES pg_nodes(id),
+    target_id VARCHAR(512) REFERENCES pg_nodes(id),
+    properties JSONB DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
 
-基本的なLLMベースの抽出器です。
+### 高度な使用例
+
+#### カスタムエクストラクターの使用
 
 ```python
-from llama_index.core.indices.property_graph import SimpleLLMPathExtractor
-
-extractor = SimpleLLMPathExtractor(
-    llm=llm,
-    max_paths_per_chunk=10,  # チャンクあたりの最大パス数
-    num_workers=4,           # 並列処理のワーカー数
+from llama_index.core.indices.property_graph import (
+    SchemaLLMPathExtractor,
+    DynamicLLMPathExtractor,
 )
-```
 
-#### 2. SchemaLLMPathExtractor
-
-事前定義されたスキーマに基づいて抽出を行います。
-
-```python
-from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
-
+# スキーマベースの抽出器
 schema_extractor = SchemaLLMPathExtractor(
     llm=llm,
-    possible_entities=[
-        "Person", "Company", "Product", "Technology", 
-        "Location", "Event", "Concept"
-    ],
-    possible_relations=[
-        "WORKS_AT", "FOUNDED", "DEVELOPED", "LOCATED_IN",
-        "PARTICIPATED_IN", "USES", "COMPETES_WITH"
-    ],
-    strict=True,  # スキーマを厳密に適用
-)
-```
-
-#### 3. ImplicitPathExtractor
-
-テキストの構造から暗黙的なパスを抽出します。
-
-```python
-from llama_index.core.indices.property_graph import ImplicitPathExtractor
-
-implicit_extractor = ImplicitPathExtractor()
-```
-
-## 高度な使用例
-
-### 1. 複数の抽出器を組み合わせた使用
-
-```python
-from llama_index.core import PropertyGraphIndex, Settings
-from llama_index.core.indices.property_graph import (
-    SimpleLLMPathExtractor,
-    SchemaLLMPathExtractor,
-    ImplicitPathExtractor,
+    possible_entities=["人物", "会社", "製品", "場所"],
+    possible_relations=["働いている", "設立した", "開発した", "位置している"],
 )
 
-# 複数の抽出器を組み合わせ
-extractors = [
-    SchemaLLMPathExtractor(
-        llm=llm,
-        possible_entities=["Person", "Company", "Product"],
-        possible_relations=["WORKS_AT", "FOUNDED", "CREATED"],
-    ),
-    SimpleLLMPathExtractor(llm=llm),
-    ImplicitPathExtractor(),
-]
+# 動的抽出器
+dynamic_extractor = DynamicLLMPathExtractor(
+    llm=llm,
+    max_triplets_per_chunk=10,
+)
 
+# インデックス作成時に使用
 index = PropertyGraphIndex.from_documents(
     documents,
     embed_model=embed_model,
-    kg_extractors=extractors,
+    kg_extractors=[
+        schema_extractor,
+        dynamic_extractor,
+        ImplicitPathExtractor(),
+    ],
     property_graph_store=graph_store,
     show_progress=True,
 )
 ```
 
-### 2. カスタムクエリエンジンの設定
+#### グラフの可視化
 
 ```python
-# 詳細なクエリエンジン設定
+# グラフをHTML形式で保存
+graph_store.save_networkx_graph("knowledge_graph.html")
+```
+
+### クエリ機能
+
+#### ベクトル検索
+
+```python
+from llama_index.core.graph_stores.types import VectorStoreQuery
+
+# ベクトルクエリの実行
+query_embedding = embed_model.get_text_embedding("技術革新について")
+vector_query = VectorStoreQuery(
+    query_embedding=query_embedding,
+    similarity_top_k=5
+)
+
+nodes, scores = graph_store.vector_query(vector_query)
+for node, score in zip(nodes, scores):
+    print(f"ノード: {node.name}, スコア: {score}")
+```
+
+#### 関係の深度検索
+
+```python
+# 特定のノードから指定した深度までの関係を取得
+nodes = graph_store.get(ids=["entity_1"])
+related_triplets = graph_store.get_rel_map(
+    graph_nodes=nodes,
+    depth=2,  # 深度
+    limit=30,  # 結果の上限
+    ignore_rels=["無関係"]  # 無視する関係タイプ
+)
+```
+
+## ナレッジグラフストア（PostgresGraphStore）
+
+従来のナレッジグラフ（トリプレット形式）を使用する場合は、`PostgresGraphStore`を使用できます。
+
+```python
+from llama_index.graph_stores.postgres import PostgresGraphStore
+from llama_index.core import (
+    KnowledgeGraphIndex,
+    SimpleDirectoryReader,
+    StorageContext,
+)
+
+documents = SimpleDirectoryReader("./data/").load_data()
+
+# PostgreSQLグラフストアの初期化
+graph_store = PostgresGraphStore(
+    db_connection_string="postgresql://user:password@host:5432/dbname"
+)
+
+storage_context = StorageContext.from_defaults(graph_store=graph_store)
+
+# ナレッジグラフインデックスの作成
+index = KnowledgeGraphIndex.from_documents(
+    documents=documents,
+    storage_context=storage_context,
+    max_triplets_per_chunk=2,
+)
+
 query_engine = index.as_query_engine(
-    include_text=True,                    # 元のテキストを含める
-    response_mode="tree_summarize",       # 応答モード
-    similarity_top_k=10,                  # 類似度検索の上位K件
-    explore_global_knowledge=True,        # グローバル知識の探索
-    max_knowledge_sequence=30,            # 最大知識シーケンス長
+    include_text=False, 
+    response_mode="tree_summarize"
 )
+
+response = query_engine.query("Interleafについて詳しく教えてください")
+print(response)
 ```
 
-### 3. グラフの可視化
+## パフォーマンスの最適化
 
-```python
-import networkx as nx
-from pyvis.network import Network
-
-# グラフデータの取得
-graph_data = graph_store.get_graph_data()
-
-# NetworkXグラフの作成
-G = nx.Graph()
-for node in graph_data.nodes:
-    G.add_node(node.id, **node.properties)
-for edge in graph_data.edges:
-    G.add_edge(edge.source_id, edge.target_id, **edge.properties)
-
-# Pyvisを使用した可視化
-net = Network(height="600px", width="100%", bgcolor="#222222", font_color="white")
-net.from_nx(G)
-net.show("property_graph.html")
-```
-
-## パフォーマンス最適化
-
-### 1. バッチ処理の最適化
-
-```python
-# 大量のドキュメントを効率的に処理
-index = PropertyGraphIndex.from_documents(
-    documents,
-    embed_model=embed_model,
-    kg_extractors=extractors,
-    property_graph_store=graph_store,
-    insert_batch_size=50,     # 挿入バッチサイズ
-    num_workers=8,            # 並列処理数
-    show_progress=True,
-)
-```
-
-### 2. インデックスの最適化
+### インデックスの作成
 
 ```sql
--- ベクトル検索の最適化
-CREATE INDEX CONCURRENTLY ON property_graph_nodes 
-USING ivfflat (embedding vector_cosine_ops) 
-WITH (lists = 100);
+-- ベクトル検索のためのインデックス
+CREATE INDEX ON pg_nodes USING ivfflat (embedding vector_cosine_ops);
 
--- プロパティ検索の最適化
-CREATE INDEX CONCURRENTLY ON property_graph_nodes 
-USING gin (properties);
+-- テキスト検索のためのインデックス
+CREATE INDEX ON pg_nodes (name);
+CREATE INDEX ON pg_nodes (label);
 
--- 複合インデックス
-CREATE INDEX CONCURRENTLY ON property_graph_nodes (type, name);
+-- 関係検索のためのインデックス
+CREATE INDEX ON pg_relations (source_id);
+CREATE INDEX ON pg_relations (target_id);
+CREATE INDEX ON pg_relations (label);
 ```
 
-### 3. メモリ使用量の最適化
+### 接続プールの設定
 
 ```python
-# メモリ効率的な設定
-Settings.chunk_size = 512        # チャンクサイズを小さく
-Settings.chunk_overlap = 50      # オーバーラップを最小限に
+from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
 
-# ストリーミング処理
-for doc_batch in batch_documents(documents, batch_size=10):
-    index.insert_documents(doc_batch)
-```
-
-## 実用的なユースケース
-
-### 1. 企業知識ベースの構築
-
-```python
-# 企業文書からの知識抽出
-company_extractor = SchemaLLMPathExtractor(
-    llm=llm,
-    possible_entities=[
-        "Employee", "Department", "Project", "Client", 
-        "Product", "Technology", "Process"
-    ],
-    possible_relations=[
-        "WORKS_IN", "MANAGES", "PARTICIPATES_IN", "USES",
-        "DEVELOPS", "SERVES", "DEPENDS_ON"
-    ],
+# 接続プールを使用した設定
+engine = create_engine(
+    "postgresql://user:password@host:5432/dbname",
+    poolclass=QueuePool,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
 )
 
-# 企業固有のクエリ
-query_engine = index.as_query_engine(include_text=True)
-response = query_engine.query(
-    "プロジェクトXに関わった従業員と使用された技術について教えてください"
+graph_store = PostgresPropertyGraphStore(
+    db_connection_string="postgresql://user:password@host:5432/dbname",
+    # その他のパラメータ...
 )
 ```
 
-### 2. 研究論文の分析
+## トラブルシューティング
 
-```python
-# 学術論文からの知識抽出
-academic_extractor = SchemaLLMPathExtractor(
-    llm=llm,
-    possible_entities=[
-        "Author", "Institution", "Paper", "Concept", 
-        "Method", "Dataset", "Metric"
-    ],
-    possible_relations=[
-        "AUTHORED", "AFFILIATED_WITH", "CITES", "PROPOSES",
-        "USES", "EVALUATES_ON", "IMPROVES"
-    ],
-)
-```
+### よくある問題
 
-### 3. 顧客サポートシステム
+1. **pgvector拡張機能がインストールされていない**
+   ```
+   ERROR: extension "vector" is not available
+   ```
+   解決方法: PostgreSQLにpgvector拡張機能をインストールしてください。
 
-```python
-# サポート文書からの知識抽出
-support_extractor = SchemaLLMPathExtractor(
-    llm=llm,
-    possible_entities=[
-        "Product", "Feature", "Issue", "Solution", 
-        "User", "Version", "Platform"
-    ],
-    possible_relations=[
-        "HAS_FEATURE", "CAUSES", "SOLVES", "AFFECTS",
-        "COMPATIBLE_WITH", "REQUIRES", "REPLACES"
-    ],
-)
-```
+2. **エンベディング次元の不一致**
+   ```
+   ERROR: dimension mismatch
+   ```
+   解決方法: このリポジトリでは embed_dim は 1024 固定です。使用するエンベディングモデルが1024次元の出力を生成することを確認してください。
+
+3. **メモリ不足**
+   大量のドキュメントを処理する際は、バッチサイズを調整してください：
+   ```python
+   index = PropertyGraphIndex.from_documents(
+       documents,
+       embed_model=embed_model,
+       kg_extractors=extractors,
+       property_graph_store=graph_store,
+       show_progress=True,
+       # バッチサイズを調整
+       insert_batch_size=50,
+   )
+   ```
 
 ## まとめ
 
-PostgreSQL Property Graph Storeは、LlamaIndexの強力なグラフインデックス機能とPostgreSQLの堅牢性を組み合わせた、スケーラブルで高性能なソリューションです。複雑な知識グラフの構築と検索が可能で、様々な実用的なアプリケーションに適用できます。
+PostgreSQL統合により、LlamaIndexのプロパティグラフインデックスを本格的なデータベース環境で運用できます。ベクトル検索、関係の深度検索、グラフの可視化など、豊富な機能を活用して、知識グラフベースのアプリケーションを構築してください。
 
-詳細な技術仕様については、[LlamaIndex公式ドキュメント](https://docs.llamaindex.ai/en/stable/module_guides/indexing/lpg_index_guide/)を参照してください。
+重要な点として、このリポジトリの実装では**embed_dim は 1024 固定**であることを覚えておいてください。使用するエンベディングモデルがこの次元に対応していることを確認してから利用してください。
