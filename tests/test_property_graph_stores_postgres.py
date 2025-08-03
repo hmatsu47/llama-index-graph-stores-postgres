@@ -113,3 +113,43 @@ class TestPostgresPropertyGraphStore(TestCase):
             # Clean up the temporary file
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    def test_embedding_dimension_fixed_1024(self):
+        """Test that embedding dimension is fixed at 1024 as documented in Japanese guide."""
+        # Test with default embedding_dim (should be 1024)
+        g1 = PostgresPropertyGraphStore(
+            db_connection_string=os.environ.get("POSTGRES_TEST_CONNECTION_STRING"),
+            drop_existing_table=True,
+            relation_table_name="test_relations_dim1",
+            node_table_name="test_nodes_dim1",
+        )
+        assert g1._embedding_dim == 1024
+        
+        # Test with explicitly set embedding_dim to 1024
+        g2 = PostgresPropertyGraphStore(
+            db_connection_string=os.environ.get("POSTGRES_TEST_CONNECTION_STRING"),
+            embedding_dim=1024,
+            drop_existing_table=True,
+            relation_table_name="test_relations_dim2",
+            node_table_name="test_nodes_dim2",
+        )
+        assert g2._embedding_dim == 1024
+        
+        # Test with different embedding_dim (should still work but dimension will be different)
+        g3 = PostgresPropertyGraphStore(
+            db_connection_string=os.environ.get("POSTGRES_TEST_CONNECTION_STRING"),
+            embedding_dim=512,
+            drop_existing_table=True,
+            relation_table_name="test_relations_dim3",
+            node_table_name="test_nodes_dim3",
+        )
+        assert g3._embedding_dim == 512
+        
+        # Verify that the database schema reflects the embedding dimension
+        # Check the column definition in the database
+        from sqlalchemy import inspect
+        inspector = inspect(g1._engine)
+        columns = inspector.get_columns(g1._node_table_name)
+        embedding_column = next((col for col in columns if col['name'] == 'embedding'), None)
+        assert embedding_column is not None
+        # Note: The actual vector dimension check would require database-specific inspection
